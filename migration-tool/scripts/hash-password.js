@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+/**
+ * Generates the bcrypt hash to put in AUTH_PASSWORD_HASH.
+ * Usage: npm run hash-password -- "your-password-here"
+ */
+const bcrypt = require('bcryptjs');
+
+const password = process.argv[2];
+if (!password) {
+  console.error('Usage: npm run hash-password -- "your-password-here"');
+  process.exit(1);
+}
+
+console.log(bcrypt.hashSync(password, 12));

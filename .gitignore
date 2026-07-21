@@ -1,0 +1,20 @@
+# secrets — never commit
+ssh-accounts.json
+.env
+.env.local
+.env*.local
+
+# Next.js app
+migration-tool/node_modules/
+migration-tool/.next/
+migration-tool/.vercel/
+migration-tool/*.tsbuildinfo
+
+# regenerated pipeline output (not source)
+/extracted.json
+/site-content.json
+/theme-fields.json
+
+# OS junk
+.DS_Store
+Thumbs.db
