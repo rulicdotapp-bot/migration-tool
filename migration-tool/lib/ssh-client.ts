@@ -14,9 +14,18 @@ export interface SshConnectionInfo {
 }
 
 export async function connect(info: SshConnectionInfo): Promise<Client> {
+  // Password auth is the primary/simple path (matches what Settings
+  // collects). Private key stays supported as a fallback for hosts that
+  // require it — e.g. SiteGround disables SSH password auth by default —
+  // set SSH_PRIVATE_KEY (and SSH_PRIVATE_KEY_PASSPHRASE if needed) instead
+  // of SSH_PASSWORD and this picks it up automatically.
+  const password = process.env.SSH_PASSWORD;
   const privateKey = process.env.SSH_PRIVATE_KEY;
-  if (!privateKey) throw new Error('SSH_PRIVATE_KEY env var is not set');
   const passphrase = process.env.SSH_PRIVATE_KEY_PASSPHRASE || undefined;
+
+  if (!password && !privateKey) {
+    throw new Error('Set either SSH_PASSWORD or SSH_PRIVATE_KEY (see Settings).');
+  }
 
   const client = new Client();
 
@@ -28,8 +37,7 @@ export async function connect(info: SshConnectionInfo): Promise<Client> {
         host: info.host,
         port: info.port,
         username: info.username,
-        privateKey: privateKey.trim(),
-        passphrase,
+        ...(privateKey ? { privateKey: privateKey.trim(), passphrase } : { password }),
         readyTimeout: 20000,
         keepaliveInterval: 10000,
         // Many of these hosting accounts share IPs across many domains, so a
@@ -153,6 +161,22 @@ export async function uploadDirectory(client: Client, localDir: string, remoteDi
 
   await walk(localDir, remoteDir);
   return fileCount;
+}
+
+/**
+ * Writes an in-memory buffer to a remote path over SFTP — for uploads that
+ * originate from a browser file input (e.g. a per-site logo) rather than
+ * from a file already on disk, where fastPut's local-path requirement
+ * doesn't fit.
+ */
+export async function uploadBuffer(client: Client, buffer: Buffer, remotePath: string): Promise<void> {
+  const sftp = await getSftp(client);
+  return new Promise((resolve, reject) => {
+    const stream = sftp.createWriteStream(remotePath);
+    stream.on('error', reject);
+    stream.on('close', () => resolve());
+    stream.end(buffer);
+  });
 }
 
 export type { Client };

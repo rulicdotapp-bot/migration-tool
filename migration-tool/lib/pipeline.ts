@@ -1,18 +1,22 @@
 /**
- * Thin bridge to the repo-root CommonJS pipeline scripts. They're reused
- * as-is (see ../../extract.js, ../../map.js, ../../transform.js,
- * ../../push.js) — only their `main()` CLI wrappers were changed to also
- * export a plain in-memory function. Loaded via `require()` (not `import`)
- * since they're untyped CommonJS; static relative paths so Next's build-time
- * file tracer can follow them into the deployed function bundle (see
- * next.config.js's outputFileTracingRoot).
+ * Thin bridge to the CommonJS pipeline scripts in migration-tool/pipeline/
+ * — local copies of the repo-root extract.js/map.js/transform.js/push.js,
+ * kept in sync by hand (the root copies stay in place for standalone CLI
+ * use). Copied in rather than required across the repo-root boundary
+ * because `__dirname`/relative-path resolution for files outside the
+ * project directory isn't reliable once Next.js bundles this code (it
+ * broke the theme-folder upload with a "no such file or directory" against
+ * a bundler-rewritten path) — keeping everything the app needs inside
+ * migration-tool/ sidesteps that entirely and needs no extra tracing
+ * config. Loaded via `require()` (not `import`) since they're untyped
+ * CommonJS.
  */
 /* eslint-disable @typescript-eslint/no-var-requires */
 
-const extractMod = require('../../extract.js');
-const mapMod = require('../../map.js');
-const transformMod = require('../../transform.js');
-const pushMod = require('../../push.js');
+const extractMod = require('../pipeline/extract.js');
+const mapMod = require('../pipeline/map.js');
+const transformMod = require('../pipeline/transform.js');
+const pushMod = require('../pipeline/push.js');
 
 export const extract: (args: {
   pageData: unknown;

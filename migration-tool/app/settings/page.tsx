@@ -4,14 +4,18 @@ import { useEffect, useState, FormEvent } from 'react';
 import Link from 'next/link';
 
 interface SettingsData {
-  sshAccountsJson: string;
+  sshHost: string;
+  sshUsername: string;
+  sshPort: string;
   hasPrivateKey: boolean;
   hasPassphrase: boolean;
 }
 
 export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
-  const [sshAccountsJson, setSshAccountsJson] = useState('');
+  const [sshHost, setSshHost] = useState('');
+  const [sshUsername, setSshUsername] = useState('');
+  const [sshPort, setSshPort] = useState('');
   const [sshPrivateKey, setSshPrivateKey] = useState('');
   const [sshPrivateKeyPassphrase, setSshPrivateKeyPassphrase] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -27,7 +31,9 @@ export default function SettingsPage() {
       })
       .then((body) => {
         setData(body);
-        setSshAccountsJson(body.sshAccountsJson);
+        setSshHost(body.sshHost);
+        setSshUsername(body.sshUsername);
+        setSshPort(body.sshPort);
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
   }, []);
@@ -40,7 +46,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sshAccountsJson, sshPrivateKey, sshPrivateKeyPassphrase }),
+        body: JSON.stringify({ sshHost, sshUsername, sshPort, sshPrivateKey, sshPrivateKeyPassphrase }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
@@ -65,6 +71,10 @@ export default function SettingsPage() {
         <Link href="/">&larr; Back to dashboard</Link>
       </div>
 
+      <p style={{ color: '#9aa1ac', fontSize: 13, marginTop: -8, marginBottom: 24 }}>
+        One hosting account, used for every migration — read these off your hosting panel&apos;s SSH access page.
+      </p>
+
       {loadError && <p className="banner error">✗ {loadError}</p>}
 
       {!data && !loadError && <p>Loading…</p>}
@@ -72,13 +82,35 @@ export default function SettingsPage() {
       {data && (
         <form onSubmit={handleSubmit}>
           <div className="field">
-            <label htmlFor="sshAccountsJson">SSH accounts (domain allow-list)</label>
-            <textarea
-              id="sshAccountsJson"
-              rows={8}
-              value={sshAccountsJson}
-              onChange={(e) => setSshAccountsJson(e.target.value)}
-              placeholder='[{"host":"ssh.example.com","port":18765,"user":"u123abc","domains":["example.com"]}]'
+            <label htmlFor="sshHost">Hostname</label>
+            <input
+              id="sshHost"
+              type="text"
+              value={sshHost}
+              onChange={(e) => setSshHost(e.target.value)}
+              placeholder="ssh.example.com"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="sshUsername">Username</label>
+            <input
+              id="sshUsername"
+              type="text"
+              value={sshUsername}
+              onChange={(e) => setSshUsername(e.target.value)}
+              placeholder="u123abc"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="sshPort">Port</label>
+            <input
+              id="sshPort"
+              type="number"
+              value={sshPort}
+              onChange={(e) => setSshPort(e.target.value)}
+              placeholder="22"
             />
           </div>
 
@@ -114,6 +146,11 @@ export default function SettingsPage() {
           {saveMessage && <p className={`banner ${saveMessage.type}`}>{saveMessage.text}</p>}
         </form>
       )}
+
+      <p style={{ color: '#6b7280', fontSize: 12, marginTop: 24 }}>
+        Get your key&apos;s content with <code>cat ~/.ssh/id_ed25519</code> (or whichever key already works with{' '}
+        <code>ssh &lt;that-host&gt;</code> locally) and paste the whole thing above, including the BEGIN/END lines.
+      </p>
     </>
   );
 }

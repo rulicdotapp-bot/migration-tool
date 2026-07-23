@@ -18,3 +18,4 @@ migration-tool/*.tsbuildinfo
 # OS junk
 .DS_Store
 Thumbs.db
+__MACOSX/

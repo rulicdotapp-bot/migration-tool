@@ -11,12 +11,6 @@ export const runtime = 'nodejs';
 // 1-3+ minutes). See migration-tool build plan for details.
 export const maxDuration = 60;
 
-interface MigrateRequestBody {
-  domain?: string;
-  pageId?: string;
-  dryRun?: boolean;
-}
-
 export async function POST(req: NextRequest) {
   // Defense in depth — middleware already gates this route, but the one
   // route that opens SSH connections and can mutate live client sites
@@ -26,16 +20,29 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  let body: MigrateRequestBody;
+  // multipart/form-data, not JSON — the optional logo file needs a real
+  // file upload, which fetch's FormData handles natively.
+  let form: FormData;
   try {
-    body = await req.json();
+    form = await req.formData();
   } catch {
-    return Response.json({ error: 'Invalid request body' }, { status: 400 });
+    return Response.json({ error: 'Invalid form data' }, { status: 400 });
   }
 
-  const domain = (body.domain || '').trim();
+  const domain = String(form.get('domain') || '').trim();
   if (!domain) {
     return Response.json({ error: 'domain is required' }, { status: 400 });
+  }
+  const pageIdRaw = form.get('pageId');
+  const pageId = pageIdRaw ? String(pageIdRaw) : undefined;
+  const dryRun = form.get('dryRun') === 'true';
+
+  let logo: { buffer: Buffer; ext: string } | undefined;
+  const logoEntry = form.get('logo');
+  if (logoEntry instanceof File && logoEntry.size > 0) {
+    const buffer = Buffer.from(await logoEntry.arrayBuffer());
+    const ext = (logoEntry.name.split('.').pop() || 'webp').toLowerCase();
+    logo = { buffer, ext };
   }
 
   const encoder = new TextEncoder();
@@ -48,7 +55,7 @@ export async function POST(req: NextRequest) {
       const log = (message: string) => send({ type: 'log', message });
 
       try {
-        await migrate({ domain, pageId: body.pageId, dryRun: !!body.dryRun }, log);
+        await migrate({ domain, pageId, dryRun, logo }, log);
         send({ type: 'done' });
       } catch (err) {
         send({ type: 'error', message: err instanceof Error ? err.message : String(err) });

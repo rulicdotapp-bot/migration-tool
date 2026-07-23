@@ -24,20 +24,23 @@ export async function GET(req: NextRequest) {
   const authed = await verifySession(req.cookies.get(COOKIE_NAME)?.value);
   if (!authed) return Response.json({ error: 'Not authenticated' }, { status: 401 });
 
-  // The private key/passphrase are never sent back to the browser — only
-  // whether one is currently set. SSH_ACCOUNTS_JSON isn't private key
-  // material (just hostnames/usernames the operator already has locally),
-  // and is what gets edited most often (adding a new domain), so it's
-  // returned in full for editing in place.
+  // Host/username/port aren't secret the way the key is — they're just
+  // connection info you'd read off a hosting panel — so they're returned
+  // in full for editing. The private key/passphrase are never sent back
+  // to the browser, only whether one is currently set.
   return Response.json({
-    sshAccountsJson: getEnvValue('SSH_ACCOUNTS_JSON') || '',
+    sshHost: getEnvValue('SSH_HOST') || '',
+    sshUsername: getEnvValue('SSH_USERNAME') || '',
+    sshPort: getEnvValue('SSH_PORT') || '',
     hasPrivateKey: !!(getEnvValue('SSH_PRIVATE_KEY') || '').trim(),
     hasPassphrase: !!(getEnvValue('SSH_PRIVATE_KEY_PASSPHRASE') || '').trim(),
   });
 }
 
 interface SettingsBody {
-  sshAccountsJson?: string;
+  sshHost?: string;
+  sshUsername?: string;
+  sshPort?: string;
   sshPrivateKey?: string;
   sshPrivateKeyPassphrase?: string;
 }
@@ -56,25 +59,33 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  if (typeof body.sshAccountsJson === 'string' && body.sshAccountsJson.trim()) {
-    try {
-      const parsed = JSON.parse(body.sshAccountsJson);
-      if (!Array.isArray(parsed)) throw new Error('not an array');
-    } catch {
-      return Response.json({ error: 'SSH accounts must be valid JSON (an array)' }, { status: 400 });
+  if (typeof body.sshPort === 'string' && body.sshPort.trim()) {
+    const port = Number(body.sshPort.trim());
+    if (!Number.isInteger(port) || port <= 0) {
+      return Response.json({ error: 'Port must be a positive integer' }, { status: 400 });
     }
   }
 
-  // Blank fields mean "leave unchanged" — most saves are just adding a
-  // domain to the accounts list, not re-pasting the private key.
-  if (typeof body.sshAccountsJson === 'string') {
-    setEnvValue('SSH_ACCOUNTS_JSON', body.sshAccountsJson.trim());
-  }
-  if (typeof body.sshPrivateKey === 'string' && body.sshPrivateKey.trim()) {
-    setEnvValue('SSH_PRIVATE_KEY', body.sshPrivateKey.trim());
-  }
-  if (typeof body.sshPrivateKeyPassphrase === 'string' && body.sshPrivateKeyPassphrase) {
-    setEnvValue('SSH_PRIVATE_KEY_PASSPHRASE', body.sshPrivateKeyPassphrase);
+  // Blank fields mean "leave unchanged" — most saves are just fixing a
+  // typo in the host, not re-pasting the private key every time.
+  try {
+    if (typeof body.sshHost === 'string') {
+      setEnvValue('SSH_HOST', body.sshHost.trim());
+    }
+    if (typeof body.sshUsername === 'string') {
+      setEnvValue('SSH_USERNAME', body.sshUsername.trim());
+    }
+    if (typeof body.sshPort === 'string') {
+      setEnvValue('SSH_PORT', body.sshPort.trim());
+    }
+    if (typeof body.sshPrivateKey === 'string' && body.sshPrivateKey.trim()) {
+      setEnvValue('SSH_PRIVATE_KEY', body.sshPrivateKey.trim());
+    }
+    if (typeof body.sshPrivateKeyPassphrase === 'string' && body.sshPrivateKeyPassphrase) {
+      setEnvValue('SSH_PRIVATE_KEY_PASSPHRASE', body.sshPrivateKeyPassphrase);
+    }
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
   }
 
   return Response.json({ success: true });

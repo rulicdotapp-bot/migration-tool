@@ -9,6 +9,7 @@ export default function MigrateForm() {
   const [domain, setDomain] = useState('');
   const [pageId, setPageId] = useState('');
   const [dryRun, setDryRun] = useState(true);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -23,10 +24,17 @@ export default function MigrateForm() {
     setLines([]);
 
     try {
+      const formData = new FormData();
+      formData.append('domain', domain);
+      if (pageId) formData.append('pageId', pageId);
+      formData.append('dryRun', String(dryRun));
+      if (logoFile) formData.append('logo', logoFile);
+
+      // No Content-Type header — the browser sets the multipart boundary
+      // itself, which a hardcoded 'application/json' would break.
       const res = await fetch('/api/migrate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain, pageId: pageId || undefined, dryRun }),
+        body: formData,
       });
 
       if (!res.ok || !res.body) {
@@ -112,6 +120,16 @@ export default function MigrateForm() {
             placeholder="Leave blank to use the site's front-page setting"
             value={pageId}
             onChange={(e) => setPageId(e.target.value)}
+            disabled={disabled}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="logo">Logo (optional — used in the header &amp; footer)</label>
+          <input
+            id="logo"
+            type="file"
+            accept="image/*"
+            onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
             disabled={disabled}
           />
         </div>

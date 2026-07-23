@@ -11,14 +11,16 @@
  * can stream progress to the browser as it happens.
  */
 import path from 'node:path';
-import { findAccountForDomain } from './ssh-accounts';
-import { connect, disconnect, exec, execQuiet, wp, wpQuiet, uploadDirectory, type Client } from './ssh-client';
+import { getAccount } from './ssh-account';
+import { connect, disconnect, exec, execQuiet, wp, wpQuiet, uploadDirectory, uploadBuffer, type Client } from './ssh-client';
 import { extract, mapContent, transform, pushToSite } from './pipeline';
 
 export interface MigrateOptions {
   domain: string;
   pageId?: string;
   dryRun?: boolean;
+  /** Optional per-site logo (from the dashboard's file input) — used for both the header and footer logo. */
+  logo?: { buffer: Buffer; ext: string };
 }
 
 export type Logger = (line: string) => void;
@@ -29,20 +31,26 @@ function parseWpJson(raw: string): unknown {
   return d;
 }
 
-const THEME_SLUG = 'elektricien-amstelveen';
-// migration-tool/lib -> migration-tool -> repo root -> elektricien-amstelveen.
-// Bundled into the deployed function via next.config.js's
-// outputFileTracingIncludes (this is a runtime fs walk, not a static
-// import, so the tracer can't discover it on its own).
-const THEME_DIR = path.join(__dirname, '..', '..', THEME_SLUG);
+const THEME_SLUG = 'elektricien';
+// The theme's bundled default images ship under this same literal prefix
+// (assets/images/elektricien-*.webp). Kept as its own constant, separate
+// from THEME_SLUG, since the two only coincide today because that's the
+// theme's own folder/slug name; the rename step below is what makes them
+// diverge correctly once this theme is deployed to a differently-named site.
+const DEFAULT_IMAGE_SLUG = 'elektricien';
+// process.cwd() (not __dirname) — Next.js consistently sets the working
+// directory to the app's own root both in `next dev`/`next build` and in
+// the deployed Vercel function, whereas __dirname gets rewritten to
+// something meaningless once this code is bundled (that's what broke the
+// theme upload with an ENOENT against a nonsense path). The theme folder
+// lives inside migration-tool/ itself now, so this is a plain in-project
+// path — no extra file-tracing config needed.
+const THEME_DIR = path.join(process.cwd(), THEME_SLUG);
 
 export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> {
-  const { domain, pageId, dryRun = false } = opts;
+  const { domain, pageId, dryRun = false, logo } = opts;
 
-  const account = findAccountForDomain(domain);
-  if (!account) {
-    throw new Error(`"${domain}" is not in the allow-listed SSH_ACCOUNTS_JSON — refusing to connect.`);
-  }
+  const account = getAccount();
 
   log(`=== Migrating ${domain}${dryRun ? '  [DRY RUN]' : ''} ===`);
 
@@ -140,6 +148,40 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     await execQuiet(client, `rm -rf '${remoteThemePath}'`);
     const fileCount = await uploadDirectory(client, THEME_DIR, remoteThemePath);
     log(`  ✔ ${fileCount} theme file(s) uploaded to ${remoteThemePath}`);
+
+    // The theme's static default images ship under the theme's own default
+    // slug (assets/images/elektricien-*). functions.php computes
+    // theme_image_slug() at render time as sanitize_title(get_bloginfo('name')),
+    // so for this new site's own name to produce matching filenames, the
+    // bundled files need renaming to that same slug right after upload —
+    // using WP-CLI's own sanitize_title() call keeps the two sides in
+    // agreement even if WordPress's slugify rules ever change.
+    log("→ Renaming default images to match this site's title...");
+    const blogName = await wp(client, wpPath, 'option get blogname');
+    const imageSlug = await wp(client, wpPath, `eval 'echo sanitize_title( get_option( "blogname" ) );'`);
+    const remoteImagesDir = `${remoteThemePath}/assets/images`;
+    if (imageSlug && imageSlug !== DEFAULT_IMAGE_SLUG) {
+      await execQuiet(
+        client,
+        `for f in '${remoteImagesDir}'/${DEFAULT_IMAGE_SLUG}-*; do [ -e "$f" ] && mv "$f" "${remoteImagesDir}/${imageSlug}-$(basename "$f" | sed 's/^${DEFAULT_IMAGE_SLUG}-//')"; done`
+      );
+      log(`  ✔ images renamed to "${imageSlug}-*" (from site title "${blogName}")`);
+    } else {
+      log(`  ✔ site title already matches "${DEFAULT_IMAGE_SLUG}" — no rename needed`);
+    }
+
+    // Optional per-site logo from the dashboard's file input — overrides the
+    // bundled default logo images (any extension: theme_static_image_url()
+    // on the PHP side finds the file regardless of extension). Used for both
+    // the header and footer logo slots, since the form only collects one.
+    if (logo) {
+      log('→ Uploading custom logo...');
+      const ext = logo.ext.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'webp';
+      await execQuiet(client, `rm -f '${remoteImagesDir}'/${imageSlug}-logo.* '${remoteImagesDir}'/${imageSlug}-logo-footer.*`);
+      await uploadBuffer(client, logo.buffer, `${remoteImagesDir}/${imageSlug}-logo.${ext}`);
+      await uploadBuffer(client, logo.buffer, `${remoteImagesDir}/${imageSlug}-logo-footer.${ext}`);
+      log(`  ✔ logo uploaded as ${imageSlug}-logo.${ext} (header) and ${imageSlug}-logo-footer.${ext} (footer)`);
+    }
 
     // ---- 3. Install required plugins ------------------------------------
     log('→ Installing required plugins...');

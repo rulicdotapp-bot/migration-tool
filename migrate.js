@@ -81,7 +81,7 @@ function main() {
   }
 
   const sshTarget = domain; // relies on a matching Host entry in ~/.ssh/config
-  const themeDir = path.resolve(__dirname, 'elektricien-amstelveen');
+  const themeDir = path.resolve(__dirname, 'elektricien');
   const themeSlug = path.basename(themeDir);
 
   console.log(`\n=== Migrating ${domain}${dryRun ? '  [DRY RUN]' : ''} ===\n`);
