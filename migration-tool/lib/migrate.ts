@@ -11,12 +11,25 @@
  * can stream progress to the browser as it happens.
  */
 import path from 'node:path';
-import { getAccount } from './ssh-account';
-import { connect, disconnect, exec, execQuiet, wp, wpQuiet, uploadDirectory, uploadBuffer, type Client } from './ssh-client';
+import {
+  connect,
+  disconnect,
+  execQuiet,
+  wp,
+  wpQuiet,
+  uploadDirectory,
+  uploadBuffer,
+  type Client,
+  type SshConnectionInfo,
+} from './ssh-client';
 import { extract, mapContent, transform, pushToSite } from './pipeline';
 
 export interface MigrateOptions {
-  domain: string;
+  // Every site has its own hosting account now — pasted into the dashboard
+  // form fresh for each run and never persisted anywhere (no Settings page,
+  // no env vars, no database). The site's own domain is discovered over
+  // this connection (see step 0 below) rather than typed in separately.
+  ssh: SshConnectionInfo;
   pageId?: string;
   dryRun?: boolean;
   /** Optional per-site logo (from the dashboard's file input) — used for both the header and footer logo. */
@@ -48,28 +61,36 @@ const DEFAULT_IMAGE_SLUG = 'elektricien';
 const THEME_DIR = path.join(process.cwd(), THEME_SLUG);
 
 export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> {
-  const { domain, pageId, dryRun = false, logo } = opts;
+  const { ssh, pageId, dryRun = false, logo } = opts;
 
-  const account = getAccount();
-
-  log(`=== Migrating ${domain}${dryRun ? '  [DRY RUN]' : ''} ===`);
+  log(`=== Migrating ${ssh.host}${dryRun ? '  [DRY RUN]' : ''} ===`);
 
   log('→ Connecting over SSH...');
-  const client: Client = await connect(account);
-  log(`  ✔ connected to ${account.host}:${account.port} as ${account.username}`);
+  const client: Client = await connect(ssh);
+  log(`  ✔ connected to ${ssh.host}:${ssh.port} as ${ssh.username}`);
 
   let wpPath: string | null = null;
+  let siteUrl: string | null = null;
   let adminUser: string | null = null;
   let appPassUuid: string | null = null;
 
   try {
     // ---- 0. Resolve remote WordPress path ----------------------------------
-    log('→ Resolving remote WordPress path...');
-    const remoteHome = await exec(client, 'echo $HOME');
-    const candidatePaths = [
-      `${remoteHome}/www/${domain}/public_html`, // addon domain
-      `${remoteHome}/public_html`,                // account's primary domain
-    ];
+    // No domain is typed in up front — this account is dedicated to one
+    // site, so the WordPress install is found by searching for its
+    // wp-config.php under $HOME rather than guessing a path from a domain
+    // string (which also means this doesn't care whether the host uses an
+    // addon-domain layout, a primary-domain layout, or something else).
+    log('→ Locating the WordPress install...');
+    const findRaw = await execQuiet(client, `find "$HOME" -maxdepth 5 -iname wp-config.php 2>/dev/null`);
+    const candidatePaths = (findRaw || '')
+      .split('\n')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => path.posix.dirname(p));
+    if (!candidatePaths.length) {
+      throw new Error('No wp-config.php found under $HOME on this account — is WordPress installed here?');
+    }
     for (const p of candidatePaths) {
       const v = await wpQuiet(client, p, 'core version');
       if (v) {
@@ -80,9 +101,11 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     }
     if (!wpPath) {
       throw new Error(
-        `Could not find a WP-CLI-reachable WordPress install for ${domain}. Tried: ${candidatePaths.join(', ')}`
+        `Found wp-config.php but WP-CLI couldn't run against it. Tried: ${candidatePaths.join(', ')}`
       );
     }
+    siteUrl = (await wp(client, wpPath, 'option get home')).replace(/\/$/, '');
+    log(`  ✔ site URL: ${siteUrl}`);
     const remoteThemesDir = `${wpPath}/wp-content/themes`;
     const remoteThemePath = `${remoteThemesDir}/${THEME_SLUG}`;
 
@@ -139,7 +162,7 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     if (dryRun) {
       log('[dry-run] Would now: upload theme, install ACF Pro + Contact Form 7, activate theme,');
       log('[dry-run] create the hero contact form, mint an application password, and push content.');
-      log(`=== ✔ ${domain} dry-run complete (nothing changed on the site) ===`);
+      log(`=== ✔ ${siteUrl} dry-run complete (nothing changed on the site) ===`);
       return;
     }
 
@@ -237,7 +260,8 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     const extracted = extract({ pageData, header, footer, templates });
     log(`  ✔ extracted ${(extracted.widgets as unknown[]).length} widget(s)`);
 
-    const siteContent = mapContent({ widgets: extracted.widgets as unknown[], site: domain });
+    const siteHost = (siteUrl as string).replace(/^https?:\/\//, '');
+    const siteContent = mapContent({ widgets: extracted.widgets as unknown[], site: siteHost });
     log('  ✔ mapped to site-content');
 
     const themeFields = transform({ siteContent: siteContent as Record<string, unknown> });
@@ -245,7 +269,7 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
 
     const pushResult = await pushToSite({
       payload: themeFields,
-      url: `https://${domain}`,
+      url: siteUrl as string,
       user: adminUser,
       pass: password,
     });
@@ -253,7 +277,7 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     if (pushResult.skipped?.length) log(`  ⚠ skipped (not registered on theme): ${pushResult.skipped.join(', ')}`);
     if (pushResult.errors?.length) log(`  ✗ errors: ${JSON.stringify(pushResult.errors)}`);
 
-    log(`=== ✔ ${domain} migrated ===`);
+    log(`=== ✔ ${siteUrl} migrated ===`);
   } finally {
     if (adminUser && appPassUuid && wpPath) {
       await execQuiet(client, `wp --path='${wpPath}' user application-password delete ${adminUser} ${appPassUuid}`);

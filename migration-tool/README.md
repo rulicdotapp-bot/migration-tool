@@ -13,9 +13,27 @@ bundled the code — `__dirname`/relative-path resolution to files outside
 `npm run sync-theme` before testing/deploying this app** — otherwise it
 silently keeps using the old copies (this has already happened twice).
 
-This is an **internal tool, not a public one** — it holds SSH credentials
-capable of mutating live client WordPress sites. Everything behind the
-login gate should stay that way.
+This is an **internal tool, not a public one** — anyone who logs in can
+SSH into whatever hosting account they paste in and mutate that site.
+Everything behind the login gate should stay that way.
+
+## SSH credentials — pasted per run, never stored
+
+Every site being migrated has its own separate hosting account with its
+own SSH credentials. There's no saved "account" anywhere — no Settings
+page, no env vars, no database. The dashboard's migration form has fields
+for SSH host/username/port/private key (or password); whoever's running a
+migration pastes that specific site's credentials in each time, straight
+off its hosting panel's SSH access page. Nothing is written to disk or
+persisted between requests — `lib/ssh-client.ts` takes the connection info
+as a plain argument and that's it.
+
+There's also no domain field: the app finds the WordPress install itself
+by searching for `wp-config.php` under the account's home directory (see
+`lib/migrate.ts` step 0), then reads the site's real URL straight from
+WordPress (`wp option get home`) rather than trusting a typed string. This
+also means it doesn't care whether the host uses an addon-domain layout or
+a dedicated-account layout — it just finds WordPress wherever it is.
 
 ## Local setup
 
@@ -25,52 +43,38 @@ npm install
 cp .env.local.example .env.local
 ```
 
-Fill in `.env.local`:
+Fill in `.env.local` — only two values are needed, both for the login gate
+itself (not for any site being migrated):
 
-1. **`AUTH_PASSWORD_HASH`** — pick a password, then:
+1. **`AUTH_PASSWORD_HASH`** — pick a shared team password, then:
    ```bash
    npm run hash-password -- "your-password-here"
    ```
    paste the output (not the plaintext password) into `.env.local`.
 2. **`SESSION_SECRET`** — `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-3. **`SSH_HOST`**, **`SSH_USERNAME`**, **`SSH_PORT`**, **`SSH_PRIVATE_KEY`**,
-   **`SSH_PRIVATE_KEY_PASSPHRASE`** — leave these blank in the file. Fill
-   them in from the app instead (see below) once you're logged in.
 
 ```bash
 npm run dev
 ```
 
-Visit `http://localhost:3000`, sign in, then go to **Settings** and fill in
-your hosting account's SSH details — hostname, username, port, read
-straight off your hosting panel's SSH access page — plus the private key
-that already works with `ssh <that-host>` locally (e.g. `~/.ssh/id_ed25519`;
-get its content with `cat ~/.ssh/id_ed25519` and paste the whole thing,
-BEGIN/END lines included). This tool supports **one hosting account**,
-used for every migration regardless of which domain you type on the
-dashboard — the domain only selects the addon-domain folder on that one
-account (how SiteGround/Hostinger addon-domain hosting actually works), it
-doesn't select between multiple accounts. Settings writes straight to
-`.env.local` and only works for local dev — the deployed Vercel app
-refuses these requests (its filesystem is read-only and `.env.local` isn't
-even part of the deployed bundle), so production secrets still go through
-the Vercel dashboard as described below.
-
-(`SSH_PASSWORD` also works instead of a key, if this host allows SSH
-password login — most managed hosts, SiteGround included, don't. The key
-takes priority automatically if both are set.)
-
-Back on the dashboard, try a **dry run** first — it fetches and previews
-without touching the live site, and finishes in seconds regardless of
-Vercel plan tier.
+Visit `http://localhost:3000`, sign in, then paste a site's SSH details
+directly into the migration form. Try a **dry run** first — it fetches and
+previews without touching the live site, and finishes in seconds
+regardless of Vercel plan tier.
 
 ## Deploying
 
-You (not this assistant) create the Vercel project and enter every secret
-above directly in its dashboard — see the repo's plan file for the full
-reasoning. A few things to double check there:
+You (not this assistant) create the Vercel project and enter
+`AUTH_PASSWORD_HASH` and `SESSION_SECRET` directly in its dashboard — see
+the repo's plan file for the full reasoning. Nothing else needs to go in
+the Vercel dashboard; SSH credentials never touch it, since they're pasted
+into the app itself per migration. A few things to double check:
 
 - **Root Directory**: `migration-tool`
+- **Framework Preset**: `Next.js` (auto-detects once Root Directory is set
+  correctly — if it's stuck on "Other" with a manual Output Directory
+  override, that's a leftover from before Root Directory was fixed; clear
+  the override)
 - **`app/api/migrate/route.ts`**: `export const maxDuration` is set to `60`
   (Hobby's ceiling) to start. Everything except a real end-to-end migration
   (login, the UI, dry runs) works fine on Hobby. Once you're on **Pro with
@@ -78,9 +82,6 @@ reasoning. A few things to double check there:
   for that tier — a full migration (theme upload + plugin installs +
   WP-CLI calls) can take 1–3+ minutes on a slow host and will otherwise
   get cut off mid-run.
-- Env vars: scope `SSH_HOST`, `SSH_USERNAME`, `SSH_PORT`, `SSH_PASSWORD`
-  (or `SSH_PRIVATE_KEY`), etc. to **Production only** unless you also want
-  preview deployments to be able to touch live sites.
 
 ## What a timeout looks like
 
@@ -89,4 +90,5 @@ host), the browser's log console just stops — no final success/error
 banner. `lib/migrate.ts` self-heals for this: it deletes any leftover
 `migration-*`-named application passwords before minting a new one each
 run, and the theme upload/plugin install steps are already idempotent
-(`rm -rf` first, `--force` installs), so simply re-running is safe.
+(`rm -rf` first, `--force` installs), so simply re-running (with the same
+SSH details pasted back in) is safe.

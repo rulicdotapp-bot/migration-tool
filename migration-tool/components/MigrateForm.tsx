@@ -6,7 +6,12 @@ import LogConsole from './LogConsole';
 type Status = 'idle' | 'running' | 'success' | 'error' | 'ended-unexpectedly';
 
 export default function MigrateForm() {
-  const [domain, setDomain] = useState('');
+  const [sshHost, setSshHost] = useState('');
+  const [sshUsername, setSshUsername] = useState('');
+  const [sshPort, setSshPort] = useState('22');
+  const [sshPrivateKey, setSshPrivateKey] = useState('');
+  const [sshPrivateKeyPassphrase, setSshPrivateKeyPassphrase] = useState('');
+  const [sshPassword, setSshPassword] = useState('');
   const [pageId, setPageId] = useState('');
   const [dryRun, setDryRun] = useState(true);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -25,7 +30,12 @@ export default function MigrateForm() {
 
     try {
       const formData = new FormData();
-      formData.append('domain', domain);
+      formData.append('sshHost', sshHost);
+      formData.append('sshUsername', sshUsername);
+      formData.append('sshPort', sshPort);
+      if (sshPrivateKey) formData.append('sshPrivateKey', sshPrivateKey);
+      if (sshPrivateKeyPassphrase) formData.append('sshPrivateKeyPassphrase', sshPrivateKeyPassphrase);
+      if (sshPassword) formData.append('sshPassword', sshPassword);
       if (pageId) formData.append('pageId', pageId);
       formData.append('dryRun', String(dryRun));
       if (logoFile) formData.append('logo', logoFile);
@@ -100,16 +110,77 @@ export default function MigrateForm() {
   return (
     <>
       <form onSubmit={handleSubmit}>
+        <p style={{ color: '#9aa1ac', fontSize: 13, marginTop: 0, marginBottom: 16 }}>
+          Paste this site&apos;s own SSH connection details — read them off its hosting panel&apos;s SSH access
+          page. Nothing here is saved; you paste it fresh for every site you migrate.
+        </p>
         <div className="field">
-          <label htmlFor="domain">Domain</label>
+          <label htmlFor="sshHost">SSH Hostname</label>
           <input
-            id="domain"
+            id="sshHost"
             type="text"
-            placeholder="elektricienamsterdam020.com"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
+            placeholder="ssh.example.com"
+            value={sshHost}
+            onChange={(e) => setSshHost(e.target.value)}
             disabled={disabled}
             required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="sshUsername">SSH Username</label>
+          <input
+            id="sshUsername"
+            type="text"
+            placeholder="u123abc"
+            value={sshUsername}
+            onChange={(e) => setSshUsername(e.target.value)}
+            disabled={disabled}
+            required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="sshPort">SSH Port</label>
+          <input
+            id="sshPort"
+            type="number"
+            placeholder="22"
+            value={sshPort}
+            onChange={(e) => setSshPort(e.target.value)}
+            disabled={disabled}
+            required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="sshPrivateKey">SSH private key</label>
+          <textarea
+            id="sshPrivateKey"
+            rows={6}
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+            value={sshPrivateKey}
+            onChange={(e) => setSshPrivateKey(e.target.value)}
+            disabled={disabled}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="sshPrivateKeyPassphrase">Private key passphrase (if any)</label>
+          <input
+            id="sshPrivateKeyPassphrase"
+            type="password"
+            value={sshPrivateKeyPassphrase}
+            onChange={(e) => setSshPrivateKeyPassphrase(e.target.value)}
+            disabled={disabled}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="sshPassword">
+            SSH password (only if this host doesn&apos;t support key login — leave blank if you filled in a key above)
+          </label>
+          <input
+            id="sshPassword"
+            type="password"
+            value={sshPassword}
+            onChange={(e) => setSshPassword(e.target.value)}
+            disabled={disabled}
           />
         </div>
         <div className="field">
@@ -143,7 +214,10 @@ export default function MigrateForm() {
           />
           <label htmlFor="dryRun">Dry run (fetch + preview only — no changes to the live site)</label>
         </div>
-        <button type="submit" disabled={disabled || !domain}>
+        <button
+          type="submit"
+          disabled={disabled || !sshHost || !sshUsername || !sshPort || (!sshPrivateKey && !sshPassword)}
+        >
           {disabled ? 'Running…' : dryRun ? 'Run dry-run' : 'Run migration'}
         </button>
       </form>

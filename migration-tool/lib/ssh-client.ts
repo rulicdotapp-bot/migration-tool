@@ -11,20 +11,18 @@ export interface SshConnectionInfo {
   host: string;
   port: number;
   username: string;
+  // Every site has its own account with its own credentials now — these
+  // come in fresh with each migration request (typed/pasted into the
+  // dashboard form) and are never stored anywhere. Private key takes
+  // priority whenever both are provided.
+  password?: string;
+  privateKey?: string;
+  privateKeyPassphrase?: string;
 }
 
 export async function connect(info: SshConnectionInfo): Promise<Client> {
-  // Password auth is the primary/simple path (matches what Settings
-  // collects). Private key stays supported as a fallback for hosts that
-  // require it — e.g. SiteGround disables SSH password auth by default —
-  // set SSH_PRIVATE_KEY (and SSH_PRIVATE_KEY_PASSPHRASE if needed) instead
-  // of SSH_PASSWORD and this picks it up automatically.
-  const password = process.env.SSH_PASSWORD;
-  const privateKey = process.env.SSH_PRIVATE_KEY;
-  const passphrase = process.env.SSH_PRIVATE_KEY_PASSPHRASE || undefined;
-
-  if (!password && !privateKey) {
-    throw new Error('Set either SSH_PASSWORD or SSH_PRIVATE_KEY (see Settings).');
+  if (!info.password && !info.privateKey) {
+    throw new Error('Provide either an SSH password or an SSH private key.');
   }
 
   const client = new Client();
@@ -37,7 +35,9 @@ export async function connect(info: SshConnectionInfo): Promise<Client> {
         host: info.host,
         port: info.port,
         username: info.username,
-        ...(privateKey ? { privateKey: privateKey.trim(), passphrase } : { password }),
+        ...(info.privateKey
+          ? { privateKey: info.privateKey.trim(), passphrase: info.privateKeyPassphrase || undefined }
+          : { password: info.password }),
         readyTimeout: 20000,
         keepaliveInterval: 10000,
         // Many of these hosting accounts share IPs across many domains, so a

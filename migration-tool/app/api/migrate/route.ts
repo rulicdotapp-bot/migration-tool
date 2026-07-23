@@ -29,10 +29,29 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Invalid form data' }, { status: 400 });
   }
 
-  const domain = String(form.get('domain') || '').trim();
-  if (!domain) {
-    return Response.json({ error: 'domain is required' }, { status: 400 });
+  // Every site has its own hosting account — these come from the form
+  // fresh on every request and are never written to disk or env vars.
+  const sshHost = String(form.get('sshHost') || '').trim();
+  const sshUsername = String(form.get('sshUsername') || '').trim();
+  const sshPortRaw = String(form.get('sshPort') || '').trim();
+  const sshPrivateKey = String(form.get('sshPrivateKey') || '').trim();
+  const sshPrivateKeyPassphrase = String(form.get('sshPrivateKeyPassphrase') || '').trim();
+  const sshPassword = String(form.get('sshPassword') || '').trim();
+
+  const missing = [
+    !sshHost && 'SSH host',
+    !sshUsername && 'SSH username',
+    !sshPortRaw && 'SSH port',
+    !sshPrivateKey && !sshPassword && 'SSH private key or password',
+  ].filter(Boolean);
+  if (missing.length) {
+    return Response.json({ error: `Missing: ${missing.join(', ')}` }, { status: 400 });
   }
+  const sshPort = Number(sshPortRaw);
+  if (!Number.isInteger(sshPort) || sshPort <= 0) {
+    return Response.json({ error: `SSH port must be a positive integer, got "${sshPortRaw}"` }, { status: 400 });
+  }
+
   const pageIdRaw = form.get('pageId');
   const pageId = pageIdRaw ? String(pageIdRaw) : undefined;
   const dryRun = form.get('dryRun') === 'true';
@@ -55,7 +74,15 @@ export async function POST(req: NextRequest) {
       const log = (message: string) => send({ type: 'log', message });
 
       try {
-        await migrate({ domain, pageId, dryRun, logo }, log);
+        const ssh = {
+          host: sshHost,
+          username: sshUsername,
+          port: sshPort,
+          privateKey: sshPrivateKey || undefined,
+          privateKeyPassphrase: sshPrivateKeyPassphrase || undefined,
+          password: sshPassword || undefined,
+        };
+        await migrate({ ssh, pageId, dryRun, logo }, log);
         send({ type: 'done' });
       } catch (err) {
         send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
