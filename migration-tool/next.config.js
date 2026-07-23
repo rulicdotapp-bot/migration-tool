@@ -17,6 +17,13 @@ const nextConfig = {
   outputFileTracingIncludes: {
     '/api/**/*': ['./elektricien/**/*'],
   },
+  // ssh2's crypto.js picks between a native binding and a pure-JS fallback
+  // via a runtime require() call Turbopack's static bundler can't resolve
+  // ("non-ecmascript placeable asset"), which fails the production build.
+  // Marking it external skips bundling it — Node resolves it from
+  // node_modules at runtime instead (still included in the deployed
+  // function output via Next's dependency tracing).
+  serverExternalPackages: ['ssh2'],
 };
 
 module.exports = nextConfig;
