@@ -90,6 +90,19 @@ export async function exec(client: Client, cmd: string): Promise<string> {
   return stdout;
 }
 
+/**
+ * Runs a remote command and returns its stdout regardless of exit code —
+ * for commands like `find` where a non-zero exit (e.g. one unreadable
+ * subdirectory under a shared-hosting home dir) doesn't mean the whole
+ * command failed; it can still have printed useful matches to stdout
+ * before hitting that error. exec()/execQuiet() would incorrectly discard
+ * that output just because the exit code wasn't 0.
+ */
+export async function execStdout(client: Client, cmd: string): Promise<string> {
+  const { stdout } = await execRaw(client, cmd);
+  return stdout;
+}
+
 /** Same as exec(), but returns null instead of throwing — for "try candidate path" style probing. */
 export async function execQuiet(client: Client, cmd: string): Promise<string | null> {
   try {

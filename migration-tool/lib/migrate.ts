@@ -15,6 +15,7 @@ import {
   connect,
   disconnect,
   execQuiet,
+  execStdout,
   wp,
   wpQuiet,
   uploadDirectory,
@@ -82,7 +83,12 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     // string (which also means this doesn't care whether the host uses an
     // addon-domain layout, a primary-domain layout, or something else).
     log('→ Locating the WordPress install...');
-    const findRaw = await execQuiet(client, `find "$HOME" -maxdepth 5 -iname wp-config.php 2>/dev/null`);
+    // execStdout, not execQuiet — `find` commonly exits non-zero just from
+    // hitting one unreadable subdirectory under a shared-hosting home dir
+    // (mail spools, .cagefs, etc.), even though it still printed the
+    // matches we actually want to stdout before that. execQuiet would
+    // discard that output entirely and wrongly report "nothing found".
+    const findRaw = await execStdout(client, `find "$HOME" -maxdepth 5 -iname wp-config.php 2>/dev/null`);
     const candidatePaths = (findRaw || '')
       .split('\n')
       .map((p) => p.trim())
