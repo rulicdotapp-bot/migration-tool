@@ -88,14 +88,22 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     // (mail spools, .cagefs, etc.), even though it still printed the
     // matches we actually want to stdout before that. execQuiet would
     // discard that output entirely and wrongly report "nothing found".
-    const findRaw = await execStdout(client, `find "$HOME" -maxdepth 5 -iname wp-config.php 2>/dev/null`);
+    const findRaw = await execStdout(client, `find "$HOME" -maxdepth 7 -iname wp-config.php 2>/dev/null`);
     const candidatePaths = (findRaw || '')
       .split('\n')
       .map((p) => p.trim())
       .filter(Boolean)
       .map((p) => path.posix.dirname(p));
     if (!candidatePaths.length) {
-      throw new Error('No wp-config.php found under $HOME on this account — is WordPress installed here?');
+      // Self-diagnosing instead of a dead-end error — show what's actually
+      // under $HOME so this is fixable from the log console alone, without
+      // needing to hand SSH credentials to anyone else to go look.
+      const home = await execStdout(client, 'echo $HOME');
+      const listing = await execStdout(client, `ls -la "$HOME" 2>/dev/null`);
+      throw new Error(
+        `No wp-config.php found under $HOME (searched 7 levels deep). ` +
+          `$HOME resolves to: ${home || '(empty)'}\nContents:\n${listing || '(could not list)'}`
+      );
     }
     for (const p of candidatePaths) {
       const v = await wpQuiet(client, p, 'core version');

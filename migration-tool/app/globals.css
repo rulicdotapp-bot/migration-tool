@@ -107,6 +107,7 @@ button:disabled {
   padding: 12px 16px;
   font-size: 14px;
   margin-top: 16px;
+  white-space: pre-wrap;
 }
 
 .banner.success {
