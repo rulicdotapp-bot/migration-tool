@@ -83,12 +83,24 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     // string (which also means this doesn't care whether the host uses an
     // addon-domain layout, a primary-domain layout, or something else).
     log('→ Locating the WordPress install...');
+    // $HOME itself is sometimes a symlink into a virtualized/jailed backend
+    // path (seen on at least one account: /home/xxxxx -> customer) that a
+    // plain `ls`/`find "$HOME"` doesn't resolve correctly when passed as a
+    // raw path argument — but `cd` into it does, since that's the normal
+    // login path these jails are built to support. So: cd first, then ask
+    // the shell what directory it's actually standing in (`pwd -P`,
+    // physical/symlink-free) and use THAT absolute path for everything
+    // else, rather than trusting the literal "$HOME" string.
+    const realHome = await execStdout(client, 'cd "$HOME" 2>/dev/null && pwd -P');
+    if (!realHome) {
+      throw new Error(`Could not resolve $HOME on this account (cd into it failed).`);
+    }
     // execStdout, not execQuiet — `find` commonly exits non-zero just from
     // hitting one unreadable subdirectory under a shared-hosting home dir
     // (mail spools, .cagefs, etc.), even though it still printed the
     // matches we actually want to stdout before that. execQuiet would
     // discard that output entirely and wrongly report "nothing found".
-    const findRaw = await execStdout(client, `find "$HOME" -maxdepth 7 -iname wp-config.php 2>/dev/null`);
+    const findRaw = await execStdout(client, `find "${realHome}" -maxdepth 7 -iname wp-config.php 2>/dev/null`);
     const candidatePaths = (findRaw || '')
       .split('\n')
       .map((p) => p.trim())
@@ -98,11 +110,10 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
       // Self-diagnosing instead of a dead-end error — show what's actually
       // under $HOME so this is fixable from the log console alone, without
       // needing to hand SSH credentials to anyone else to go look.
-      const home = await execStdout(client, 'echo $HOME');
-      const listing = await execStdout(client, `ls -la "$HOME" 2>/dev/null`);
+      const listing = await execStdout(client, `ls -la "${realHome}" 2>/dev/null`);
       throw new Error(
         `No wp-config.php found under $HOME (searched 7 levels deep). ` +
-          `$HOME resolves to: ${home || '(empty)'}\nContents:\n${listing || '(could not list)'}`
+          `$HOME resolves to: ${realHome}\nContents:\n${listing || '(could not list)'}`
       );
     }
     for (const p of candidatePaths) {
