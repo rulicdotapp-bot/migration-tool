@@ -302,6 +302,17 @@ export async function migrate(opts: MigrateOptions, log: Logger): Promise<void> 
     if (pushResult.skipped?.length) log(`  ⚠ skipped (not registered on theme): ${pushResult.skipped.join(', ')}`);
     if (pushResult.errors?.length) log(`  ✗ errors: ${JSON.stringify(pushResult.errors)}`);
 
+    // Best-effort cache purge — a re-migration can overwrite a static
+    // asset (e.g. a replaced logo) at the exact same filename, and a
+    // full-page cache plugin (common on shared/LiteSpeed hosting) can keep
+    // serving old HTML that embeds the old reference regardless of the
+    // file itself changing. Each of these no-ops harmlessly via execQuiet
+    // if that particular plugin isn't installed on this site.
+    await execQuiet(client, `wp --path='${wpPath}' cache flush`);
+    await execQuiet(client, `wp --path='${wpPath}' litespeed-purge all`);
+    await execQuiet(client, `wp --path='${wpPath}' w3tc flush all`);
+    await execQuiet(client, `wp --path='${wpPath}' rocket clean --confirm`);
+
     log(`=== ✔ ${siteUrl} migrated ===`);
   } finally {
     if (adminUser && appPassUuid && wpPath) {

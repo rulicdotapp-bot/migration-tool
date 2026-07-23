@@ -29,8 +29,13 @@ function theme_static_image_url( $name, $default_ext = 'webp' ) {
 
     $exts = array_unique( array( $default_ext, 'webp', 'png', 'jpg', 'jpeg' ) );
     foreach ( $exts as $ext ) {
-        if ( file_exists( $base_dir . $slug . '-' . $name . '.' . $ext ) ) {
-            return $base_uri . $slug . '-' . $name . '.' . $ext;
+        $file = $base_dir . $slug . '-' . $name . '.' . $ext;
+        if ( file_exists( $file ) ) {
+            // A re-migration can overwrite this same filename with new
+            // content (e.g. a replaced logo) — without a cache-busting
+            // query string, browsers and page-cache plugins keep serving
+            // the old file from that same URL indefinitely.
+            return $base_uri . $slug . '-' . $name . '.' . $ext . '?v=' . filemtime( $file );
         }
     }
     return $base_uri . $slug . '-' . $name . '.' . $default_ext;
